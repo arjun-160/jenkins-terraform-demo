@@ -46,11 +46,19 @@ resource "aws_instance" "web" {
   instance_type          = "t3.micro"
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
+  # If index.html or this script changes, Terraform replaces the instance so the new page is deployed
+  user_data_replace_on_change = true
+
   user_data = <<-EOF
     #!/bin/bash
     apt-get update -y
     apt-get install -y nginx
-    echo "<h1>Deployed automatically: Jenkins + Git + Terraform + AWS</h1>" > /var/www/html/index.html
+    echo "${base64encode(file("${path.module}/index.html"))}" | base64 -d > /var/www/html/index.html
+    TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+    IID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+    IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4)
+    AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/availability-zone)
+    sed -i "s/__INSTANCE_ID__/$IID/; s/__PUBLIC_IP__/$IP/; s/__AZ__/$AZ/" /var/www/html/index.html
     systemctl enable --now nginx
   EOF
 
